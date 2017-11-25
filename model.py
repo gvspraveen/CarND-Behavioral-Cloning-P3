@@ -5,16 +5,14 @@ import numpy as np
 
 from keras.models import Sequential
 from keras.layers import Cropping2D
-from keras.backend import tf as ktf
 from keras.layers.core import Dense, Activation, Flatten, Dropout, Lambda
 from keras.layers.convolutional import Convolution2D
 
 
-from helper import parse_driving_log, \
-    evenout_training_distribution, preprocess_image
+from helper import parse_driving_log, preproces_datasets, read_image
 
-
-def batch_generater(np_training_paths, np_training_angles, batch_size=32):
+default_batch_size = 128
+def batch_generater(np_training_paths, np_training_angles, batch_size=default_batch_size):
     num_samples = len(np_training_paths)
     while 1: # Loop forever so the generator never terminates
         for offset in range(0, num_samples, batch_size):
@@ -22,7 +20,7 @@ def batch_generater(np_training_paths, np_training_angles, batch_size=32):
             batch_training_angles = np_training_angles[offset:offset+batch_size]
             batch_training_images = []
             for training_path in batch_training_paths:
-                img = preprocess_image(training_path)
+                img = read_image(training_path)
                 batch_training_images.append(img)
             yield shuffle(np.array(batch_training_images), batch_training_angles)
 
@@ -34,29 +32,38 @@ def batch_generater(np_training_paths, np_training_angles, batch_size=32):
 # ==================================================================
 
 all_samples, all_angles = parse_driving_log()
-train_samples, validation_samples, training_angles, validation_angles = train_test_split(all_samples, all_angles, test_size=0.2)
+train_samples, validation_samples, training_angles, validation_angles = train_test_split(all_samples, all_angles, test_size=0.35)
+test_samples, validation_samples, test_angles, validation_angles = train_test_split(validation_samples, validation_angles, test_size=0.35)
 
 train_samples, training_angles = shuffle(train_samples, training_angles)
+test_samples,  test_angles = shuffle(test_samples, test_angles)
+validation_samples, validation_angles = shuffle(validation_samples, validation_angles)
 
 np_training_paths = np.array(train_samples)
 np_training_angles = np.array(training_angles)
 np_validation_paths = np.array(validation_samples)
 np_validation_angles = np.array(validation_angles)
+np_test_paths = np.array(test_samples)
+np_test_angles = np.array(test_angles)
 
 print("Training shape: {}, {}".format(np_training_paths.shape, np_training_angles.shape))
 print("Validation shape: {}, {}".format(np_validation_paths.shape, np_validation_angles.shape))
+print("Test shape: {}, {}".format(np_test_paths.shape, np_test_angles.shape))
 
-# Plot distribution of angles
-np_training_paths, np_training_angles = evenout_training_distribution(np_training_paths, np_training_angles)
+# Pre process data sets.
+# This step does following.
+# 1. Evaluate distribution of data and remove samples with too many images (to avoid overfitting). This is because track has too many zero angle driving scenarios
+# 2. Generate a fake data for angles with very few samples. I use image transformation techniques to generate fake data from existing data.
+np_training_paths, np_training_angles = preproces_datasets(np_training_paths, np_training_angles)
 np_training_paths, np_training_angles = shuffle(np_training_paths, np_training_angles)
 
-# np_training_paths = np_training_paths[0:500]
-# np_training_angles = np_training_angles[0:500]
-# np_validation_paths = np_validation_paths[0:100]
-# np_validation_angles = np_validation_angles[0:100]
+train_generator = batch_generater(np_training_paths, np_training_angles)
+validation_generator = batch_generater(np_validation_paths, np_validation_angles)
+test_generator = batch_generater(np_test_paths, np_test_angles)
 
-train_generator = batch_generater(np_training_paths, np_training_angles, batch_size=32)
-validation_generator = batch_generater(np_validation_paths, np_validation_angles, batch_size=32)
+def resize_image(image):
+    from keras.backend import tf
+    return tf.image.resize_images(image, (66, 200))
 
 def generate_model():
     model = Sequential()
@@ -66,7 +73,7 @@ def generate_model():
     # This is one of the hints provided in project requirements
 
     # NVDIA model uses 66*200*3 image
-    model.add(Lambda(lambda image: ktf.image.resize_images(image, (66, 200))))
+    model.add(Lambda(resize_image))
 
     # Normalize
     model.add(Lambda(lambda x: x/255.0 - 0.5,input_shape=(66,200,3)))
@@ -112,5 +119,14 @@ model.fit_generator(train_generator,
                     samples_per_epoch=len(np_training_paths),
                     validation_data=validation_generator,
                     nb_val_samples=len(np_validation_paths),
-                    nb_epoch=3)
+                    nb_epoch=epochs)
+
 model.save('model.h5')
+print ("Model saved")
+print("========================================================")
+
+test_loss = model.evaluate_generator(test_generator, int(len(np_test_paths)/default_batch_size))
+print ("Test Loss : {:.4f}".format(test_loss))
+
+
+

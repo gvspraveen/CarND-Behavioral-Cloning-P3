@@ -7,11 +7,23 @@ import numpy as np
 import random
 import cv2
 import os
-from image_helpers import convert_to_gray, transform_img
+from image_helpers import transform_img
 
 image_rel_path = './data/IMG/'
 aug_img_dir = 'IMG_aug'
 aug_image_rel_path = './data/IMG_aug/'
+
+def read_image(image_path):
+    """
+    :param image_path:
+    :return img
+    """
+        # Original image shape: 160x320x3
+    img = cv2.imread(image_path)
+    # Convert the image to rgb
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    return img
+
 
 def parse_driving_log():
     """
@@ -26,6 +38,7 @@ def parse_driving_log():
         for log in logs:
             speed = float(log[6])
 
+            angle_augment = 0
             # Ignore data points where car was not moving
             if speed < 0.1:
                 continue
@@ -38,13 +51,22 @@ def parse_driving_log():
             angles.append(angle)
     return samples, angles
 
+
 def clean_aug_data():
     filelist = [ f for f in os.listdir(aug_image_rel_path) ]
     for f in filelist:
         os.remove(os.path.join(aug_image_rel_path, f))
 
+
 def generate_fake_images_like(existing_paths, existing_angles, num_to_generate):
     """
+    Randomly sample from from existing_paths array and copy to a new array.
+    num_to_generate dictates the number of sample generated
+
+    # Transformation is done by adding guassian blur.
+    # moving image randomly in horizontal direction.
+    # There should not be any transformation in x direction because later this image will be cropped out
+
     :param existing_paths:
     :param existing_angles:
     :param num_to_generate:
@@ -56,7 +78,11 @@ def generate_fake_images_like(existing_paths, existing_angles, num_to_generate):
     for i in range(num_to_generate):
         random_index = random.randint(0, len(existing_paths) - 1)
         fpath = existing_paths[random_index]
-        img = cv2.imread(fpath)
+        img = read_image(fpath)
+
+
+        img = transform_img(img, 0, 15)
+
         filename = fpath.split('/')[-1]
         extractPath = filename.split('.')
         augfilename = aug_image_rel_path + extractPath[0] + '_' + str(random.randint(0, 10000)) + '.' + extractPath[1]
@@ -67,9 +93,16 @@ def generate_fake_images_like(existing_paths, existing_angles, num_to_generate):
 
     return new_image_paths, new_angles
 
-def evenout_training_distribution(np_paths, np_angles):
+def preproces_datasets(np_paths, np_angles):
     """
-    Looks at distribution of the data. Removes extre samples. Generates samples for angles with very few images
+    Looks at distribution of the data.
+    Then computes median/avg of distribution. Due to the nature of the track we found lot of images where there is no
+    angle and few samples for extreme steering angle.
+    In order to avoid overfitting to zero angle, we have to remove few images for zero angle.
+
+    At same time, number of samples where |steering angle| > |0.5| is less. We need more of such images because we have
+    to tech car to recover in case it is approaching curb in some situations. So here I am faking images for angles with
+    very few images.
 
     :param np_paths:
     :param np_angles:
@@ -88,15 +121,15 @@ def evenout_training_distribution(np_paths, np_angles):
     # Numpy returns 1 more bin than histogram array.
     bin_centers = (bins[:-1] + bins[1:]) / 2
 
-    # plt.bar(bin_centers, hist, align='center', width=bin_width)
-    # plt.savefig('plot/training_angles_hist.png')
-    # plt.clf()
+    plt.bar(bin_centers, hist, align='center', width=bin_width)
+    plt.savefig('plot/training_angles_hist.png')
+    plt.clf()
 
     # Figure out a ideal range of counts for each bin
     expected_average_per_bin = int(len(np_angles)/num_bins)
 
     # I came up with these multipliers based on experience from traffic classifier project
-    max_per_bin = 4 * expected_average_per_bin
+    max_per_bin = 3.5 * expected_average_per_bin
     min_per_bin = int(0.5 * expected_average_per_bin)
 
     print("Expected expected_average_per_bin {}, max_per_bin {}, min_per_bin {}".format(expected_average_per_bin, max_per_bin, min_per_bin))
@@ -132,14 +165,15 @@ def evenout_training_distribution(np_paths, np_angles):
 
     for bin_num in angle_indices_by_bin.keys():
         if (hist[bin_num] > max_per_bin):
-            exceed_ratio = hist[bin_num]/max_per_bin
-            keep_rate = int(100.0/exceed_ratio)
-            deleted_bin_indices = delete_random(
-                angle_indices_by_bin[bin_num],
-                keep_rate=keep_rate
-            )
-            indices_to_delete.extend(deleted_bin_indices)
-            hist[bin_num] -= len(deleted_bin_indices)
+            pass
+        #     exceed_ratio = hist[bin_num]/max_per_bin
+        #     keep_rate = int(100.0/exceed_ratio) # Larger the bin size, lower probability to keep it.
+        #     deleted_bin_indices = delete_random(
+        #         angle_indices_by_bin[bin_num],
+        #         keep_rate=keep_rate
+        #     )
+        #     indices_to_delete.extend(deleted_bin_indices)
+        #     hist[bin_num] -= len(deleted_bin_indices)
 
         # We need to generate some fake data
         elif hist[bin_num] < min_per_bin and hist[bin_num] > 0.1 * min_per_bin:
@@ -166,23 +200,8 @@ def evenout_training_distribution(np_paths, np_angles):
     print("aug_image_paths {}, deleted_paths {}, total images {}".format(len(aug_image_paths), len(indices_to_delete), len(np_paths)))
     # print("new histogram {}".format(hist))
 
-    # plt.bar(bin_centers, hist, align='center', width=bin_width)
-    # plt.savefig('plot/training_angles_hist_even1.png')
-    # plt.clf()
+    plt.bar(bin_centers, hist, align='center', width=bin_width)
+    plt.savefig('plot/training_angles_hist_even1.png')
+    plt.clf()
 
     return np_paths, np_angles
-
-def preprocess_image(image_path):
-    """
-    :param image_path:
-    :return img
-    """
-    # Original image shape: 160x320x3
-    img = cv2.imread(image_path)
-    # Convert the image to rgb
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    if aug_img_dir in image_path:
-        # This is a generated image. For generated image lets transform them.
-        # There should not be any transformation in x direction because later this image will be cropped out
-        img = transform_img(img, 0, 15)
-    return img
