@@ -1,5 +1,7 @@
 import csv
 import math
+import matplotlib
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import random
@@ -55,13 +57,6 @@ def generate_fake_images_like(existing_paths, existing_angles, num_to_generate):
         random_index = random.randint(0, len(existing_paths) - 1)
         fpath = existing_paths[random_index]
         img = cv2.imread(fpath)
-        # gr_img = convert_to_gray(blurred_image)
-        #
-        # if random.randint(0, 100) > 50:
-        #     gr_img = add_brightness(gr_img)
-        # else:
-        #     gr_img = reduce_brightness(gr_img)
-
         filename = fpath.split('/')[-1]
         extractPath = filename.split('.')
         augfilename = aug_image_rel_path + extractPath[0] + '_' + str(random.randint(0, 10000)) + '.' + extractPath[1]
@@ -92,9 +87,10 @@ def evenout_training_distribution(np_paths, np_angles):
     hist, bins = np.histogram(np_angles, num_bins)
     # Numpy returns 1 more bin than histogram array.
     bin_centers = (bins[:-1] + bins[1:]) / 2
-    plt.bar(bin_centers, hist, align='center', width=bin_width)
-    plt.savefig('plot/training_angles_hist.png')
-    plt.clf()
+
+    # plt.bar(bin_centers, hist, align='center', width=bin_width)
+    # plt.savefig('plot/training_angles_hist.png')
+    # plt.clf()
 
     # Figure out a ideal range of counts for each bin
     expected_average_per_bin = int(len(np_angles)/num_bins)
@@ -170,9 +166,9 @@ def evenout_training_distribution(np_paths, np_angles):
     print("aug_image_paths {}, deleted_paths {}, total images {}".format(len(aug_image_paths), len(indices_to_delete), len(np_paths)))
     # print("new histogram {}".format(hist))
 
-    plt.bar(bin_centers, hist, align='center', width=bin_width)
-    plt.savefig('plot/training_angles_hist_even1.png')
-    plt.clf()
+    # plt.bar(bin_centers, hist, align='center', width=bin_width)
+    # plt.savefig('plot/training_angles_hist_even1.png')
+    # plt.clf()
 
     return np_paths, np_angles
 
@@ -181,23 +177,12 @@ def preprocess_image(image_path):
     :param image_path:
     :return img
     """
+    # Original image shape: 160x320x3
     img = cv2.imread(image_path)
     # Convert the image to rgb
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
     if aug_img_dir in image_path:
         # This is a generated image. For generated image lets transform them.
         # There should not be any transformation in x direction because later this image will be cropped out
         img = transform_img(img, 0, 15)
-    img = convert_to_gray(img)
     return img
-
-def plot_image_gray(images, labels, filepath):
-    _, cols = plt.subplots(1,len(images), figsize=(200, 200))
-    for i in range(len(images)):
-        label = labels[i]
-        cols[i].set_title("{:0.2f}".format(label))
-        cols[i].imshow(images[i].squeeze(), cmap="gray")
-    plt.savefig(filepath)
-    plt.clf()
-
