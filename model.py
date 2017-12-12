@@ -112,7 +112,7 @@ def generate_model():
     return model
 
 
-learning_rate=0.001
+learning_rate=0.0001
 epochs = 3
 model = generate_model()
 model.fit_generator(train_generator,

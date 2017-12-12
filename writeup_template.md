@@ -1,32 +1,18 @@
 # **Behavioral Cloning** 
 
-## Writeup Template
-
-### You can use this file as a template for your writeup if you want to submit it as a markdown file, but feel free to use some other method and submit a pdf if you prefer.
 
 ---
 
-**Behavioral Cloning Project**
-
-The goals / steps of this project are the following:
-* Use the simulator to collect data of good driving behavior
-* Build, a convolution neural network in Keras that predicts steering angles from images
-* Train and validate the model with a training and validation set
-* Test that the model successfully drives around track one without leaving the road
-* Summarize the results with a written report
-
-
 [//]: # (Image References)
 
-[image1]: ./examples/placeholder.png "Model Visualization"
-[image2]: ./examples/placeholder.png "Grayscaling"
-[image3]: ./examples/placeholder_small.png "Recovery Image"
-[image4]: ./examples/placeholder_small.png "Recovery Image"
-[image5]: ./examples/placeholder_small.png "Recovery Image"
-[image6]: ./examples/placeholder_small.png "Normal Image"
-[image7]: ./examples/placeholder_small.png "Flipped Image"
+[centerdriving]: ./images/centerdriving.jpg "Center driving"
+[fake_image1]: ./images/fake_image1.jpg "Fake data"
+[left_recovery]: ./images/leftrecovery.jpg "Left recover"
+[alongcurve]: ./images/alongcurve.jpg "Along curve"
+[reverse]: ./images/reverse.jpg "Reverse"
 
 ## Rubric Points
+
 ### Here I will consider the [rubric points](https://review.udacity.com/#!/rubrics/432/view) individually and describe how I addressed each point in my implementation.  
 
 ---
@@ -35,95 +21,163 @@ The goals / steps of this project are the following:
 #### 1. Submission includes all required files and can be used to run the simulator in autonomous mode
 
 My project includes the following files:
-* model.py containing the script to create and train the model
-* drive.py for driving the car in autonomous mode
-* model.h5 containing a trained convolution neural network 
-* writeup_report.md or writeup_report.pdf summarizing the results
+* `model.py`, `helper.py` and `image_helpers.py` together containing the script to create and train the model.
+For the sake of clarity of code, I split my processing methods into a `helper.py` and `image_helpers.py`. 
+So `model.py` contains just model constructions and training which makes it easy to review.
+* `drive.py` for driving the car in autonomous mode. I had to change the speed of driving (to 20mph) to match something closer to my driving pattern ( i could not drive really slow since my computer could not handle it well). 
+However model does perform fairly well for range of speeds. 
+* `model.h5` containing a trained convolution neural network 
+* `writeup_report.md` which contains write up
+* `video.mp4` which contains generated video from autonomous run.
 
 #### 2. Submission includes functional code
 Using the Udacity provided simulator and my drive.py file, the car can be driven autonomously around the track by executing 
 ```sh
-python drive.py model.h5
+python drive.py model.h5 run
 ```
 
 #### 3. Submission code is usable and readable
 
-The model.py file contains the code for training and saving the convolution neural network. The file shows the pipeline I used for training and validating the model, and it contains comments to explain how the code works.
+I split my processing methods into a `helper.py` and `image_helpers.py`. 
+So `model.py` contains just model constructions and training which makes it easy to review.
 
 ### Model Architecture and Training Strategy
 
 #### 1. An appropriate model architecture has been employed
+I first tried with a simple 2 layer convnet followed by three full connected layers (this was inspired by my solution for traffic classifier project). I tried tuning dropoffs, learning rate etc.
+But I could not get great results. Basically my model was not learning recovery modes well.  
+ 
+For model, I tried tweaking a bit to by taking clues from vgg net, googlenet architecture. But in all of them either my training or validation loss was not good. 
 
-My model consists of a convolution neural network with 3x3 filter sizes and depths between 32 and 128 (model.py lines 18-24) 
+I then used the approach suggested in project description. [Nvidia model](https://images.nvidia.com/content/tegra/automotive/images/2016/solutions/pdf/end-to-end-dl-using-px.pdf).
 
-The model includes RELU layers to introduce nonlinearity (code line 20), and the data is normalized in the model using a Keras lambda layer (code line 18). 
+Model can be found in `model.py` from line #68-#112. I will describe the architecture and modifications in further sections below.
 
 #### 2. Attempts to reduce overfitting in the model
 
-The model contains dropout layers in order to reduce overfitting (model.py lines 21). 
+Even with this model, I noticed lot of times my model was overfitting to center driving and not doing great with recovery. To counter this,
+I added some dropout which improved validation and test loss. See line #99 in `model.py`.
 
-The model was trained and validated on different data sets to ensure that the model was not overfitting (code line 10-16). The model was tested by running it through the simulator and ensuring that the vehicle could stay on the track.
 
 #### 3. Model parameter tuning
 
-The model used an adam optimizer, so the learning rate was not tuned manually (model.py line 25).
+I used adam optimizer. I tuned both batch size, learning rate and epoochs.
+
+Batch size 128 worked best for my model.
+
+I tried 0.001 and 0.0001 for Learning rates. Finally 0.0001 got best result.
+
+For epochs, I noticed that after 3 epochs my validation loss was fluctuating while training loss was still decreasing. This indicated overfitting. So I chose `3 epochs`.
+
+
+You can see parameters in line #114-#115
 
 #### 4. Appropriate training data
 
-Training data was chosen to keep the vehicle driving on the road. I used a combination of center lane driving, recovering from the left and right sides of the road ... 
+I first generated the training data like it was suggested in project videos. 3 laps of center driving, 1 laps along curve, 1 laps for recover and 2 laps for reverse direction (clockwise).
 
-For details about how I created the training data, see the next section. 
+This was not sufficient for recovery modes because of the way `drive.py` implements driving vs how I was driving manually in training mode. More details are explained in training process section below.
 
 ### Model Architecture and Training Strategy
 
 #### 1. Solution Design Approach
 
-The overall strategy for deriving a model architecture was to ...
+As explained previously, I used [Nvidia model](https://images.nvidia.com/content/tegra/automotive/images/2016/solutions/pdf/end-to-end-dl-using-px.pdf) for final approach.
+Reading the paper, it looked most appropriate for my use case. This model detects curves, expecially road or lane marking detection.
 
-My first step was to use a convolution neural network model similar to the ... I thought this model might be appropriate because ...
+Model But I could not use it out of box. Before feed the data into this model, I added couple of layers to my keras model. First one is,
+`Cropping2D` to crop out other parts of the image (other than lanes), `resize` to convert the image to `66,200,3` as expected by Nvidia model.
 
-In order to gauge how well the model was working, I split my image and steering angle data into a training and validation set. I found that my first model had a low mean squared error on the training set but a high mean squared error on the validation set. This implied that the model was overfitting. 
+Also I applied RELU activations for non linearity and dropout for avoiding overfitting (I found dropout to be to super important for recovery mode detection).
+Without dropout, my model overfit to straight line driving because of the nature of the track.
 
-To combat the overfitting, I modified the model so that ...
-
-Then I ... 
-
-The final step was to run the simulator to see how well the car was driving around track one. There were a few spots where the vehicle fell off the track... to improve the driving behavior in these cases, I ....
-
-At the end of the process, the vehicle is able to drive autonomously around the track without leaving the road.
+I was able to test this by running `driving.py` with a slightly different speed than what I was driving in training model. As kept adding RELU and dropout, my model was getting better at recovery. Also there was some training generation techniques I need to do for this (which are explained in further sections).
+ 
+At the end of the process, the vehicle is able to drive autonomously around the track without leaving the road or cutting the yellow line.
 
 #### 2. Final Model Architecture
 
-The final model architecture (model.py lines 18-24) consisted of a convolution neural network with the following layers and layer sizes ...
+The final model architecture (model.py lines 68-112) is as follows:
 
-Here is a visualization of the architecture (note: visualizing the architecture is optional according to the project rubric)
+* `Cropping2D` to crop out top 50 and bottom 20 pixels.
+* `resize` layer to convert image to `66, 200, 3`
+* `Normalization` layer for faster training
+* `Convolution2D` with 5X5 kernel, stride = 2, output channels = 24. Applied RELU activation
+* `Convolution2D` with 5X5 kernel, stride = 2, output channels = 36. Applied RELU activation
+* `Convolution2D` with 5X5 kernel, stride = 2, output channels = 48. Applied RELU activation
+* `Convolution2D` with 3X3 kernel, no strides, output channels = 64. Applied RELU activation
+* `Convolution2D` with 3X3 kernel, no strides, output channels = 64. Applied RELU activation
+* `Flatten`
+* `Dropout` with a keep_prob of 60%.
+* `Fully Connected layer` with 100 output units
+* `Fully Connected layer` with 50 output units
+* `Fully Connected layer` with 10 output units
+* `Fully Connected layer` with 1 output unit corresponding to steering angle.
 
-![alt text][image1]
+I compiled with model with `mse` loss and `adam` optimizer. Also used `fit_generator` as suggested to avoid memory issues.
 
 #### 3. Creation of the Training Set & Training Process
 
-To capture good driving behavior, I first recorded two laps on track one using center lane driving. Here is an example image of center lane driving:
+To capture good driving behavior, I first recorded three laps on track one using center lane driving. Here is an example image of center lane driving:
 
-![alt text][image2]
+![Center Driving][centerdriving]
 
-I then recorded the vehicle recovering from the left side and right sides of the road back to center so that the vehicle would learn to .... These images show what a recovery looks like starting from ... :
+I then recorded the vehicle recovering from the left side and right sides of the road back to center so that the vehicle would learn to recover incase it detects vehicle is escaping off the road. Here is a image where vehicle is about to detect escaping to water on left side :
 
-![alt text][image3]
-![alt text][image4]
-![alt text][image5]
-
-Then I repeated this process on track two in order to get more data points.
-
-To augment the data sat, I also flipped images and angles thinking that this would ... For example, here is an image that has then been flipped:
-
-![alt text][image6]
-![alt text][image7]
-
-Etc ....
-
-After the collection process, I had X number of data points. I then preprocessed this data by ...
+![Left recover][left_recovery]
 
 
-I finally randomly shuffled the data set and put Y% of the data into a validation set. 
+Then I collect some images for drving along the curves on steep turns. 
+I need this because, `drive.py` seems to apply a constant speed. But when I train on my computer, my natural game playing instincts made me slow the car. I tried replicating drive.py in my driving but found that to be laborious. 
+Instead I felt its easier to make car learn to driving along curve.
 
-I used this training data for training the model. The validation set helped determine if the model was over or under fitting. The ideal number of epochs was Z as evidenced by ... I used an adam optimizer so that manually training the learning rate wasn't necessary.
+![alongcurve][alongcurve]
+
+I also drove in reverse direction to simulate flipping of images. 
+
+![reverse][reverse]
+
+Lot of this process was watching car behave in autonomous mode and making car learn situations that arise from it and making sure to generalize this.
+
+After collection, I still did some preprocessig of data in my program. Some ot the pre processing I did are.
+
+1. Observe the distribution of data and generate fake data for angles which are under represented in distribution. This was needed becuse, straight driving is more than curves in track. To make sure model learns enough from curves and recovery, I had to do that.
+2. For fake data, perform some image transformation techniques. Like adding blur, translating image in horizontal direction. I did no translate in vertical direction because later my model would chop image and this causes problems. 
+
+Here is a sample fake image.
+
+![Fake Image][fake_image1]
+
+I then randomly shuffled data and split it into training, validation and test set.
+
+Training size: 17483
+Validation set: 3294 (~20% of training)
+Test set: 6119 (~35% of training)
+
+As explained earlier, these were my hyper parameters:
+
+* Batch size `128` worked best for my model.
+* For learning reate, I tried `0.001` and `0.0001`. Finally `0.0001` got best result.
+* For epochs, I noticed that after 3 epochs my validation loss was fluctuating while training loss was still decreasing. This indicated overfitting. So I chose `3 epochs`.
+
+
+#### 4. Results
+
+I ran the car twice around the track in autonomous mode and captured video. 
+
+As you can see in `video.mp4`, car stayed in lane at all times and did not cut the yellow line. 
+
+A long step curves, it followed my driving pattern, by driving along the shape of the curve and not cutting it. During recovery it made sure to not overshoot recovery by adjusting steering angle immediately. 
+
+#### 5. Feedback
+
+All in all, this was fun project. But there was significant challenge in making sure car behaves well as per code in autonomous mode. As a result, I spent lot more time on data generation and pre processing than model generation. 
+
+One thing I noticed was we are just producing steering angle in model. But most of the times driving pattern that I have (in terms of speed at various positions in track) is not same as `drive.py`.
+
+For example, when you drive on a curve at 15mph your angle has to be different than when you drive at 20mph. When I drive in simulator mode, I tend to slow down signficantly along curve. But `drive.py` does not do the same.
+For now, I got around this by creating extensive training data, pre processing, fake data generation and model architecture to detect fall off early to create smooth recovery. 
+
+It could be more efficient to train the model to produce `speed` and `angle` and have the `drive.py` just apply them at every position of the road.
+
+May be this could a future experiment I will do. But for now, I have got very good results and spent lot of hours on this already.

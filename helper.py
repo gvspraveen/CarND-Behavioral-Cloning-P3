@@ -80,7 +80,6 @@ def generate_fake_images_like(existing_paths, existing_angles, num_to_generate):
         fpath = existing_paths[random_index]
         img = read_image(fpath)
 
-
         img = transform_img(img, 0, 15)
 
         filename = fpath.split('/')[-1]
